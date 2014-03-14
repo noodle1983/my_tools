@@ -90,6 +90,9 @@ function create_xls_title( excel, sheet, column, info )
 
 	cell = sheet.Cells(2, column)
 	cell.Value2 = info.Name
+
+	cell = sheet.Cells(3, column)
+	cell.Value2 = info.Alias
 end
 
 function create_validation( excel, sheet, column, info )
@@ -162,7 +165,7 @@ function dump_to_lua( table_name, sheet, excel )
 	local f = io.open( lfs.currentdir() .. "./" .. new_name .. ".lua", "w" )
 	f:write( sformat( "%s = \n", new_name ) )
 	f:write( "{\n" )
-	for row = 3, ROW_MAX, 1 do
+	for row = 4, ROW_MAX, 1 do
        
 		local index = sheet.Cells(row, 1).Value2
 		if index then
