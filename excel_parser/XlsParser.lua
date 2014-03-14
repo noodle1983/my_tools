@@ -40,7 +40,7 @@ function create_xls( filename )
 	local cfg = _G[table_name]
 	if not cfg then
 		error( sformat( "Table Name must be %s", table_name ) )
-	elseif cfg.enable_sheet then
+	else
         local excel = luacom.CreateObject("Excel.Application")
         excel.Application.DisplayAlerts = 0
         excel.Visible = false
@@ -59,23 +59,13 @@ function create_xls( filename )
                 sheet.Name = tbl_name
                 for attr_index = 1, #tbl_value, 1 do
                     create_xls_title( excel, sheet, attr_index, tbl_value[attr_index] )
+                    create_validation( excel, sheet, attr_index, tbl_value[attr_index] )
                 end
                 sheet_index = sheet_index + 1
             end
 		end
 
         book:SaveAs( lfs.currentdir() .. "./" .. table_name .. ".xlsx" )
-		excel:Quit()
-	else
-		local excel = luacom.CreateObject("Excel.Application")
-		excel.Application.DisplayAlerts = 0
-		local book  = excel.Workbooks:Add()
-		local sheet = book.Worksheets(1)
-		excel.Visible = false
-		for i = 1, #cfg, 1 do
-			create_xls_title( excel, sheet, i, cfg[i] )
-		end
-		book:SaveAs( lfs.currentdir() .. "./" .. table_name .. ".xlsx" )
 		excel:Quit()
 	end
 end
@@ -92,11 +82,32 @@ end
 
 function create_xls_title( excel, sheet, column, info )
 	local cell = sheet.Cells(1, column)
-	cell.Value2 = info.Name
 	local color = get_cell_color( info )
+	cell.Value2 = info.Type or "any"
+	cell.Value2 = (string.sub(cell.Value2, 1, 5) == "enum:" and "enum") or  cell.Value2
 	cell:Select()
 	excel.Selection.Interior.Color = color
-	excel.Selection.Validation:Add(3, nil, nil, "a, b, c", nil)
+
+	cell = sheet.Cells(2, column)
+	cell.Value2 = info.Name
+end
+
+function create_validation( excel, sheet, column, info )
+    if not info.Type then
+        return
+    elseif info.Type == "int" then
+        local value_cell = sheet.Columns(column)
+        value_cell:Select()
+        excel.Selection.Validation:Add(1, nil, nil, -9223372036854775807, 9223372036854775807)
+    elseif info.Type == "float" then
+        local value_cell = sheet.Columns(column)
+        value_cell:Select()
+        excel.Selection.Validation:Add(2, nil, nil, -9223372036854775807, 9223372036854775807)
+    elseif string.sub(info.Type, 1, 5) == "enum:" then
+        local value_cell = sheet.Columns(column)
+        value_cell:Select()
+        excel.Selection.Validation:Add(3, nil, nil, string.sub(info.Type, 6), nil)
+    end
 end
 
 function dump_xls( filename )
@@ -124,17 +135,19 @@ end
 function get_name_list( sheet, excel )
 	local name_list = {}
 	for column = 1, COLUMN_MAX, 1 do
+		local name_cell = sheet.Cells(2, column)
+		local name = name_cell.Value2
 		local cell = sheet.Cells(1, column)
-		local name = cell.Value2
-		if name then
+		local value_type = cell.Value2
+		if name and value_type then
 			cell:Select()
 			local color = excel.Selection.Interior.Color
 			if color == COLOR_RED then
-				table.insert( name_list, { Name = name, Server = true, Client = false } )
+				table.insert( name_list, { Name = name, Server = true, Client = false, Type = value_type } )
 			elseif color == COLOR_GREEN then
-				tinsert( name_list, { Name = name, Server = true, Client = true } )
+				tinsert( name_list, { Name = name, Server = true, Client = true, Type = value_type } )
 			elseif color == COLOR_YELLOW then
-				table.insert( name_list, { Name = name, Server = false, Client = true } )
+				table.insert( name_list, { Name = name, Server = false, Client = true, Type = value_type } )
 			end
 		else
 			break
@@ -149,13 +162,25 @@ function dump_to_lua( table_name, sheet, excel )
 	local f = io.open( lfs.currentdir() .. "./" .. new_name .. ".lua", "w" )
 	f:write( sformat( "%s = \n", new_name ) )
 	f:write( "{\n" )
-	for row = 2, ROW_MAX, 1 do
+	for row = 3, ROW_MAX, 1 do
+       
 		local index = sheet.Cells(row, 1).Value2
 		if index then
-			local row_str = sformat( "\t[%d] = { ",  sheet.Cells(row, 1).Value2 )
+			local row_str = sformat( "\t[%d] = { Id = %d, ",  
+                sheet.Cells(row, 1).Value2,
+                sheet.Cells(row, 1).Value2 )
 			for column = 2, #name_list, 1 do
 				if name_list[column].Server then
-					row_str = row_str .. name_list[column].Name .. " = " .. (sheet.Cells(row, column).Value2 or "nil") .. ", "
+                    local value =  (sheet.Cells(row, column).Value2 or "nil")
+                    if name_list[column].Type == "enum" then
+                        local test_enum_value = string.gmatch(value, "([-%d]+):")() 
+                        if test_enum_value then
+                            value = test_enum_value
+                        end
+                    elseif name_list[column].Type == "string" then
+                        value = "\"" .. value .. "\""
+                    end
+					row_str = row_str .. name_list[column].Name .. " = " .. value .. ", "
 				end
 			end
 			row_str = row_str .. "},\n"
