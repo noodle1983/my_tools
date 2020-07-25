@@ -1,0 +1,1 @@
+net use z: \\192.168.15.9\Anonymous /PERSISTENT:YES
